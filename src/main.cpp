@@ -33,7 +33,6 @@ char mqtt_user[40] = "";
 char mqtt_password[40] = "";
 char mqtt_topic[100] = "sensorcluster/data";
 char mqtt_status_topic[110] = "sensorcluster/status";
-char mqtt_ip_topic[110] = "sensorcluster/ip";
 char mqtt_beeper_topic[110] = "sensorcluster/beeper";
 char mqtt_led_topic[110] = "sensorcluster/led";
 char mqtt_temperature_topic[110] = "sensorcluster/temperature";
@@ -146,7 +145,6 @@ void reconnectMQTT() {
       if (mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password, 
                             mqtt_status_topic, 1, true, "offline")) {
         mqttClient.publish(mqtt_status_topic, "online", true);
-        mqttClient.publish(mqtt_ip_topic, WiFi.localIP().toString().c_str(), true);
         mqttClient.subscribe(mqtt_topic);
         mqttClient.subscribe(mqtt_beeper_topic);
         mqttClient.subscribe(mqtt_led_topic);
