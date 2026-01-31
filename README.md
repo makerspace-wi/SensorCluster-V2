@@ -1,5 +1,7 @@
 # SensorCluster V2.0
 
+![Image](https://github.com/user-attachments/assets/65ef6d3d-df8e-42d8-acc4-e89d973fbf49)
+
 Ein ESP32-S2 basiertes IoT-Gerät mit Radar-Präsenzerkennung, Temperaturmessung und MQTT-Integration.
 
 ## 🎯 Features
