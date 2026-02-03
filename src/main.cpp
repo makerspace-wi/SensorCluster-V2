@@ -96,7 +96,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     
     if (!error) {
       // Farbe auslesen
-      if (doc.containsKey("color") && doc["color"].is<JsonArray>()) {
+      if (doc["color"].is<JsonArray>()) {
         JsonArray color = doc["color"];
         if (color.size() >= 3) {
           ledRed = color[0];
@@ -106,15 +106,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       }
       
       // Blink-Zeiten auslesen
-      if (doc.containsKey("on")) {
+      if (doc["on"].is<int>()) {
         blinkOnTime = doc["on"];
       }
-      if (doc.containsKey("off")) {
+      if (doc["off"].is<int>()) {
         blinkOffTime = doc["off"];
       }
       
       // Anzahl auslesen
-      if (doc.containsKey("count")) {
+      if (doc["count"].is<int>()) {
         blinkCount = doc["count"];
       }
       
