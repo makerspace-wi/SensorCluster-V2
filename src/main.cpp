@@ -24,7 +24,7 @@ const long radarCheckInterval = 100;  // OUT-Signal alle 100ms prüfen
 const long mqttReconnectInterval = 5000;
 
 // Sensor Parameter
-const float temp_offset = 3.0;
+const float temp_offset = 0.5;
 
 // ==================== MQTT TOPICS ====================
 char mqtt_server[40] = "";
