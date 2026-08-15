@@ -82,6 +82,20 @@ Ein ESP32-S2 basiertes IoT-Gerät mit Radar-Präsenzerkennung, Temperaturmessung
 {"color":[0,0,0], "on":0, "off":0}
 ```
 
+#### Remote Restart
+**Topic:** `sensorcluster/restart`  
+**Format:** Text-Command  
+**Erlaubte Werte:** `1`, `true`, `restart`, `reboot`
+
+**Beispiele:**
+```text
+restart
+```
+
+```text
+1
+```
+
 ## ⚙️ Konfiguration
 
 ### WiFi Setup
@@ -102,6 +116,10 @@ Kann über das WiFi-Portal konfiguriert werden:
 ### WiFi Reset
 - Web-Interface aufrufen: `http://<IP-Adresse>/reset`
 - Oder Reset-Button beim Boot gedrückt halten
+
+### Remote Neustart
+- Über MQTT auf `sensorcluster/restart` veröffentlichen (z. B. `restart`)
+- Oder Web-Interface aufrufen: `http://<IP-Adresse>/restart`
 
 ## 🚀 Installation
 

@@ -22,6 +22,7 @@
 const long tempReadInterval = 15000;
 const long radarCheckInterval = 100;  // OUT-Signal alle 100ms prüfen
 const long mqttReconnectInterval = 5000;
+const long maxOfflineTime = 300000;  // 5 Minuten - danach automatischer Restart
 
 // Sensor Parameter
 const float temp_offset = 5.0;
@@ -37,6 +38,7 @@ char mqtt_beeper_topic[110] = "sensorcluster/beeper";
 char mqtt_led_topic[110] = "sensorcluster/led";
 char mqtt_temperature_topic[110] = "sensorcluster/temperature";
 char mqtt_radar_presence_topic[110] = "sensorcluster/radar/presence";
+char mqtt_restart_topic[110] = "sensorcluster/restart";
 
 // ==================== GLOBALE OBJEKTE ====================
 WiFiClient espClient;
@@ -70,6 +72,20 @@ unsigned long lastRadarCheck = 0;
 
 // MQTT
 unsigned long lastMqttReconnect = 0;
+unsigned long mqttDisconnectedSince = 0;  // Zeitpunkt, seit dem MQTT offline ist (0 = verbunden)
+bool restartRequested = false;
+
+void requestRestart(const char* reason) {
+  Serial.print("Restart angefordert: ");
+  Serial.println(reason);
+
+  if (mqttClient.connected()) {
+    mqttClient.publish(mqtt_status_topic, "restarting", true);
+    mqttClient.loop();
+  }
+
+  restartRequested = true;
+}
 
 // ==================== FUNKTIONEN ====================
 
@@ -134,12 +150,27 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       }
     }
   }
+
+  // Remote Restart via MQTT
+  else if (String(topic) == mqtt_restart_topic) {
+    message.trim();
+    message.toLowerCase();
+    if (message == "1" || message == "true" || message == "restart" || message == "reboot") {
+      requestRestart("MQTT Remote-Reboot");
+    }
+  }
 }
 
 void reconnectMQTT() {
   if (millis() - lastMqttReconnect > mqttReconnectInterval) {
     lastMqttReconnect = millis();
     if (!mqttClient.connected()) {
+      // Tracking: Zeitpunkt des ersten Verbindungsverlusts merken
+      if (mqttDisconnectedSince == 0) {
+        mqttDisconnectedSince = millis();
+        Serial.println("MQTT Verbindung verloren - Watchdog gestartet");
+      }
+      
       String clientId = "ESP32-" + String(WiFi.macAddress());
       // LWT: QoS 1, retain true, message "offline"
       if (mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password, 
@@ -148,6 +179,17 @@ void reconnectMQTT() {
         mqttClient.subscribe(mqtt_topic);
         mqttClient.subscribe(mqtt_beeper_topic);
         mqttClient.subscribe(mqtt_led_topic);
+        mqttClient.subscribe(mqtt_restart_topic);
+        
+        // MQTT wieder verbunden - Watchdog zurücksetzen
+        mqttDisconnectedSince = 0;
+        Serial.println("MQTT erfolgreich verbunden - Watchdog zurückgesetzt");
+      }
+    } else {
+      // Verbindung ist aktiv - sicherstellen, dass Watchdog zurückgesetzt ist
+      if (mqttDisconnectedSince != 0) {
+        mqttDisconnectedSince = 0;
+        Serial.println("MQTT Verbindung stabil - Watchdog zurückgesetzt");
       }
     }
   }
@@ -239,11 +281,20 @@ void setup() {
     server.send(200, "text/html", 
       "<h1>SensorCluster V2.0</h1>"
       "<p><a href='/update'>Firmware Update</a></p>"
+      "<p><a href='/restart'>Neustart</a></p>"
       "<p><a href='/reset'>WiFi Reset</a></p>"
       "<p>IP: " + WiFi.localIP().toString() + "</p>"
       "<p>MAC: " + WiFi.macAddress() + "</p>"
       "<p>MQTT: " + String(mqtt_server) + ":" + String(mqtt_port) + "</p>"
     );
+  });
+
+  server.on("/restart", []() {
+    server.send(200, "text/html",
+      "<h1>Sensor wird neu gestartet...</h1>"
+      "<p>Bitte warten Sie einige Sekunden.</p>"
+    );
+    requestRestart("Web /restart");
   });
   
   server.on("/reset", []() {
@@ -269,6 +320,18 @@ void loop() {
   mqttClient.loop();
   server.handleClient();
   ElegantOTA.loop();
+  
+  // Watchdog: Restart nach längerer Offline-Zeit
+  if (mqttDisconnectedSince != 0 && (millis() - mqttDisconnectedSince) > maxOfflineTime) {
+    Serial.println("MQTT zu lange offline - automatischer Restart wird durchgeführt...");
+    delay(1000);
+    ESP.restart();
+  }
+
+  if (restartRequested) {
+    delay(500);
+    ESP.restart();
+  }
   
   unsigned long now = millis();
   
