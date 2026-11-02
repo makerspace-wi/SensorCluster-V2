@@ -12,10 +12,10 @@
 
 // ==================== KONFIGURATION ====================
 // Pin Definitionen
-#define BEEPER_PIN 5
+#define BEEPER_PIN 18
 #define LED_PIN 17
 #define LED_COUNT 1
-#define ONE_WIRE_BUS 18
+#define ONE_WIRE_BUS 5  // DS18B20 (Tausch mit Beeper: Pull-up-Verkabelung)
 #define RADAR_OUT_PIN 40  // LD2410 OUT Signal (digitaler Präsenzausgang)
 
 // Intervalle
@@ -26,6 +26,7 @@ const long maxOfflineTime = 300000;  // 5 Minuten - danach automatischer Restart
 
 // Sensor Parameter
 const float temp_offset = 5.0;
+const unsigned long tempConversionTime = 750;  // 12-Bit-Wandlungszeit DS18B20
 
 // ==================== MQTT TOPICS ====================
 char mqtt_server[40] = "";
@@ -65,10 +66,13 @@ bool ledState = false, blinkingLed = false;
 // Temperatur
 float lastTemperature = -127.0;
 unsigned long lastTempRead = 0;
+bool tempWaitForRead = false;       // Wandlung läuft, Ergebnis noch nicht gelesen
+unsigned long tempRequestTime = 0;
 
 // Radar
 bool radarPresence = false;
 unsigned long lastRadarCheck = 0;
+bool radarDirty = false;  // Präsenzänderung trat auf, während MQTT offline war
 
 // MQTT
 unsigned long lastMqttReconnect = 0;
@@ -184,12 +188,14 @@ void reconnectMQTT() {
         // MQTT wieder verbunden - Watchdog zurücksetzen
         mqttDisconnectedSince = 0;
         Serial.println("MQTT erfolgreich verbunden - Watchdog zurückgesetzt");
-      }
-    } else {
-      // Verbindung ist aktiv - sicherstellen, dass Watchdog zurückgesetzt ist
-      if (mqttDisconnectedSince != 0) {
-        mqttDisconnectedSince = 0;
-        Serial.println("MQTT Verbindung stabil - Watchdog zurückgesetzt");
+        
+        // Radar-Präsenz nach Wiederverbindung nachliefern, falls während
+        // der Offline-Zeit eine Änderung verpasst wurde
+        if (radarDirty) {
+          mqttClient.publish(mqtt_radar_presence_topic, radarPresence ? "1" : "0", true);
+          radarDirty = false;
+          Serial.println("Radar-Präsenz nach Wiederverbindung nachgeliefert");
+        }
       }
     }
   }
@@ -240,17 +246,19 @@ void setup() {
   if (sensors.getDeviceCount() > 0) {
     sensors.setResolution(12);
   }
+  sensors.setWaitForConversion(false);  // Nicht-blockierend: Wandlung per Timer im loop() abfragen
   
   // LD2410 OUT Pin initialisieren
   pinMode(RADAR_OUT_PIN, INPUT);
   Serial.println("LD2410 OUT-Pin (IO40) initialisiert");
   
   // WiFiManager Setup
-  WiFiManagerParameter custom_mqtt_server("server", "MQTT Server", mqtt_server, 40);
-  WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 6);
-  WiFiManagerParameter custom_mqtt_user("user", "MQTT User", mqtt_user, 40);
-  WiFiManagerParameter custom_mqtt_password("password", "MQTT Passwort", mqtt_password, 40);
-  WiFiManagerParameter custom_mqtt_topic("topic", "MQTT Topic", mqtt_topic, 100);
+  // Länge = Puffergröße - 1, damit das NUL-Byte bei voller Eingabe noch passt
+  WiFiManagerParameter custom_mqtt_server("server", "MQTT Server", mqtt_server, 39);
+  WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 5);
+  WiFiManagerParameter custom_mqtt_user("user", "MQTT User", mqtt_user, 39);
+  WiFiManagerParameter custom_mqtt_password("password", "MQTT Passwort", mqtt_password, 39);
+  WiFiManagerParameter custom_mqtt_topic("topic", "MQTT Topic", mqtt_topic, 99);
   
   wifiManager.addParameter(&custom_mqtt_server);
   wifiManager.addParameter(&custom_mqtt_port);
@@ -323,9 +331,7 @@ void loop() {
   
   // Watchdog: Restart nach längerer Offline-Zeit
   if (mqttDisconnectedSince != 0 && (millis() - mqttDisconnectedSince) > maxOfflineTime) {
-    Serial.println("MQTT zu lange offline - automatischer Restart wird durchgeführt...");
-    delay(1000);
-    ESP.restart();
+    requestRestart("Watchdog: MQTT zu lange offline");
   }
 
   if (restartRequested) {
@@ -365,17 +371,26 @@ void loop() {
     }
   }
   
-  // Temperatur
-  if (now - lastTempRead >= tempReadInterval) {
+  // Temperatur: Nicht-blockierend, Wandlung und Auslesen entkoppelt
+  if (!tempWaitForRead && now - lastTempRead >= tempReadInterval) {
     lastTempRead = now;
     sensors.requestTemperatures();
-    float temperature = sensors.getTempCByIndex(0) - temp_offset;
-    if (temperature != DEVICE_DISCONNECTED_C && temperature != -127.0 && temperature != lastTemperature) {
-      lastTemperature = temperature;
-      if (mqttClient.connected()) {
-        char tempString[8];
-        dtostrf(temperature, 1, 2, tempString);
-        mqttClient.publish(mqtt_temperature_topic, tempString, true);
+    tempRequestTime = now;
+    tempWaitForRead = true;
+  }
+  if (tempWaitForRead && now - tempRequestTime >= tempConversionTime) {
+    tempWaitForRead = false;
+    float rawTemperature = sensors.getTempCByIndex(0);
+    // Trennungsprüfung am Rohwert (vor Offset), sonst wird -127.0 zum gültigen -132.0
+    if (rawTemperature != DEVICE_DISCONNECTED_C && rawTemperature != -127.0) {
+      float temperature = rawTemperature - temp_offset;
+      if (temperature != lastTemperature) {
+        lastTemperature = temperature;
+        if (mqttClient.connected()) {
+          char tempString[8];
+          dtostrf(temperature, 1, 2, tempString);
+          mqttClient.publish(mqtt_temperature_topic, tempString, true);
+        }
       }
     }
   }
@@ -394,6 +409,8 @@ void loop() {
         mqttClient.publish(mqtt_radar_presence_topic, radarPresence ? "1" : "0", true);
         Serial.print("Radar Präsenz (OUT): ");
         Serial.println(radarPresence ? "JA" : "NEIN");
+      } else {
+        radarDirty = true;  // Nach Wiederverbindung nachliefern
       }
     }
   }

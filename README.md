@@ -28,17 +28,16 @@ Ein ESP32-S2 basiertes IoT-Gerät mit Radar-Präsenzerkennung, Temperaturmessung
 
 | Komponente | Pin | Beschreibung |
 |------------|-----|--------------|
-| Beeper | GPIO 5 | Piezo-Summer |
+| Beeper | GPIO 18 | Piezo-Summer |
 | NeoPixel | GPIO 17 | WS2812B LED |
-| DS18B20 | GPIO 18 | OneWire Temperatursensor |
+| DS18B20 | GPIO 5 | OneWire Temperatursensor |
 | LD2410 OUT | GPIO 40 | Digitaler Präsenzausgang (HIGH=Präsenz) |
 
 ## 📡 MQTT Topics
 
 ### Status & Heartbeat
-- `sensorcluster/status` - Online/Offline Status (LWT)
-- `sensorcluster/ip` - IP-Adresse des Geräts
-- `sensorcluster/data` - Heartbeat (alle 10s) mit Device-Info
+- `sensorcluster/status` - Status (retained): `online`, `offline` (LWT), `restarting` (vor jedem Neustart)
+- `sensorcluster/data` - Heartbeat (alle 10s) als JSON mit Device-Info, IP-Adresse und Uptime
 
 ### Sensoren (Published)
 - `sensorcluster/temperature` - Temperatur in °C (alle 15s)
@@ -105,13 +104,15 @@ restart
 4. WLAN-Zugangsdaten und MQTT-Server konfigurieren
 5. Gerät startet neu und verbindet sich
 
+**Hinweis:** Bleibt das Config-Portal 180 Sekunden ungenutzt offen, startet das Gerät neu.
+
 ### MQTT Konfiguration
 Kann über das WiFi-Portal konfiguriert werden:
-- **MQTT Server** - IP oder Hostname
+- **MQTT Server** - IP oder Hostname (Standard: `broker.hivemq.com`)
 - **MQTT Port** - Standard: 1883
 - **MQTT User** - Optional
 - **MQTT Passwort** - Optional
-- **MQTT Topic Prefix** - Standard: sensorcluster/data
+- **MQTT Topic** (Heartbeat) - Standard: `sensorcluster/data` (Hinweis: nur dieses Topic ist konfigurierbar; Status-, LED-, Beeper- und Restart-Topics bleiben fest auf `sensorcluster/...`)
 
 ### WiFi Reset
 - Web-Interface aufrufen: `http://<IP-Adresse>/reset`
@@ -120,6 +121,10 @@ Kann über das WiFi-Portal konfiguriert werden:
 ### Remote Neustart
 - Über MQTT auf `sensorcluster/restart` veröffentlichen (z. B. `restart`)
 - Oder Web-Interface aufrufen: `http://<IP-Adresse>/restart`
+
+### MQTT Watchdog
+- Ist die MQTT-Verbindung länger als **5 Minuten** unterbrochen, startet das Gerät automatisch neu
+- Vor jedem Neustart sendet das Gerät `restarting` auf `sensorcluster/status` (retained), danach `online`
 
 ## 🚀 Installation
 
@@ -155,7 +160,7 @@ Nach der ersten Installation per USB:
 - **Sensor:** DS18B20 (Dallas/Maxim)
 - **Auflösung:** 12-bit (0.0625°C Genauigkeit)
 - **Leseintervall:** 15 Sekunden
-- **Offset-Korrektur:** -3.0°C (anpassbar im Code: `temp_offset`)
+- **Offset-Korrektur:** +5.0°C (anpassbar im Code: `temp_offset`)
 - **MQTT:** Nur bei Änderung wird gesendet (spart Bandbreite)
 
 ### Radar-Sensor (LD2410)
@@ -188,7 +193,7 @@ Nach der ersten Installation per USB:
 ### Beeper
 - **Typ:** Passiver Piezo-Summer
 - **Steuerung:** Anzahl-basiert (1-20 Pieptöne)
-- **Timing:** 250ms ein, 250ms aus pro Piepton
+- **Timing:** 200ms ein, 200ms aus pro Piepton
 
 ## 📋 Dependencies
 
@@ -198,8 +203,8 @@ tzapu/WiFiManager @ ^2.0.17
 knolleary/PubSubClient @ ^2.8
 ayushsharma82/ElegantOTA @ ^3.1.5
 adafruit/Adafruit NeoPixel @ ^1.12.3
-milesburton/DallasTemperature @ ^3.11.0
-bblanchon/ArduinoJson @ ^7.2.1
+milesburton/DallasTemperature @ ^4.0.6
+bblanchon/ArduinoJson @ ^7.4.2
 ```
 
 Siehe [platformio.ini](platformio.ini) für vollständige Konfiguration.
@@ -300,7 +305,7 @@ SensorCluster V2.0/
 
 ### Temperatur -127°C
 - DS18B20 nicht angeschlossen
-- Falscher Pin (muss GPIO 18 sein)
+- Falscher Pin (muss GPIO 5 sein)
 - Pull-up Widerstand fehlt (meist intern im Modul)
 - Sensor defekt
 
