@@ -33,13 +33,17 @@ char mqtt_server[40] = "";
 char mqtt_port[6] = "1883";
 char mqtt_user[40] = "";
 char mqtt_password[40] = "";
-char mqtt_topic[100] = "sensorcluster/data";
-char mqtt_status_topic[110] = "sensorcluster/status";
-char mqtt_beeper_topic[110] = "sensorcluster/beeper";
-char mqtt_led_topic[110] = "sensorcluster/led";
-char mqtt_temperature_topic[110] = "sensorcluster/temperature";
-char mqtt_radar_presence_topic[110] = "sensorcluster/radar/presence";
-char mqtt_restart_topic[110] = "sensorcluster/restart";
+// Basis-Topic: über das Konfigurationsportal einstellbar, alle Untertopics
+// werden daraus abgeleitet (z.B. "haus/og/sensor1" -> "haus/og/sensor1/data").
+// Puffer 80: längstes Untertopic = Basis (79) + "/radar/presence" (15) + NUL = 95 < 100
+char mqtt_base_topic[80] = "sensorcluster";
+char mqtt_topic[100];              // <Basis>/data (Heartbeat + Subscriptions)
+char mqtt_status_topic[110];       // <Basis>/status
+char mqtt_beeper_topic[110];       // <Basis>/beeper
+char mqtt_led_topic[110];          // <Basis>/led
+char mqtt_temperature_topic[110];  // <Basis>/temperature
+char mqtt_radar_presence_topic[110]; // <Basis>/radar/presence
+char mqtt_restart_topic[110];      // <Basis>/restart
 
 // ==================== GLOBALE OBJEKTE ====================
 WiFiClient espClient;
@@ -201,13 +205,31 @@ void reconnectMQTT() {
   }
 }
 
+// ==================== TOPIC-ABLEITUNG ====================
+// Baut alle Untertopics aus dem Basis-Topic auf.
+// Wird nach Laden der Konfiguration und nach jeder Portal-Änderung aufgerufen.
+void buildTopics() {
+  // Abschließenden '/' entfernen, damit Untertopics sauber angehängt werden
+  size_t baseLen = strlen(mqtt_base_topic);
+  while (baseLen > 0 && mqtt_base_topic[baseLen - 1] == '/') {
+    mqtt_base_topic[--baseLen] = '\0';
+  }
+  snprintf(mqtt_topic, sizeof(mqtt_topic), "%s/data", mqtt_base_topic);
+  snprintf(mqtt_status_topic, sizeof(mqtt_status_topic), "%s/status", mqtt_base_topic);
+  snprintf(mqtt_beeper_topic, sizeof(mqtt_beeper_topic), "%s/beeper", mqtt_base_topic);
+  snprintf(mqtt_led_topic, sizeof(mqtt_led_topic), "%s/led", mqtt_base_topic);
+  snprintf(mqtt_temperature_topic, sizeof(mqtt_temperature_topic), "%s/temperature", mqtt_base_topic);
+  snprintf(mqtt_radar_presence_topic, sizeof(mqtt_radar_presence_topic), "%s/radar/presence", mqtt_base_topic);
+  snprintf(mqtt_restart_topic, sizeof(mqtt_restart_topic), "%s/restart", mqtt_base_topic);
+}
+
 void saveConfig() {
   preferences.begin("mqtt", false);
   preferences.putString("server", mqtt_server);
   preferences.putString("port", mqtt_port);
   preferences.putString("user", mqtt_user);
   preferences.putString("password", mqtt_password);
-  preferences.putString("topic", mqtt_topic);
+  preferences.putString("base", mqtt_base_topic);
   preferences.end();
 }
 
@@ -217,8 +239,9 @@ void loadConfig() {
   preferences.getString("port", "1883").toCharArray(mqtt_port, 6);
   preferences.getString("user", "").toCharArray(mqtt_user, 40);
   preferences.getString("password", "").toCharArray(mqtt_password, 40);
-  preferences.getString("topic", "sensorcluster/data").toCharArray(mqtt_topic, 100);
+  preferences.getString("base", "sensorcluster").toCharArray(mqtt_base_topic, 80);
   preferences.end();
+  buildTopics();
 }
 
 void saveConfigCallback() {
@@ -258,13 +281,13 @@ void setup() {
   WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 5);
   WiFiManagerParameter custom_mqtt_user("user", "MQTT User", mqtt_user, 39);
   WiFiManagerParameter custom_mqtt_password("password", "MQTT Passwort", mqtt_password, 39);
-  WiFiManagerParameter custom_mqtt_topic("topic", "MQTT Topic", mqtt_topic, 99);
+  WiFiManagerParameter custom_mqtt_base("basetopic", "Basis-Topic (Untertopics werden daraus gebaut)", mqtt_base_topic, 79);
   
   wifiManager.addParameter(&custom_mqtt_server);
   wifiManager.addParameter(&custom_mqtt_port);
   wifiManager.addParameter(&custom_mqtt_user);
   wifiManager.addParameter(&custom_mqtt_password);
-  wifiManager.addParameter(&custom_mqtt_topic);
+  wifiManager.addParameter(&custom_mqtt_base);
   wifiManager.setSaveConfigCallback(saveConfigCallback);
   wifiManager.setConfigPortalTimeout(180);
   
@@ -277,8 +300,16 @@ void setup() {
   strcpy(mqtt_port, custom_mqtt_port.getValue());
   strcpy(mqtt_user, custom_mqtt_user.getValue());
   strcpy(mqtt_password, custom_mqtt_password.getValue());
-  strcpy(mqtt_topic, custom_mqtt_topic.getValue());
+  strcpy(mqtt_base_topic, custom_mqtt_base.getValue());
+  // Leer gelassenes Basis-Topic: eindeutigen Namen aus der MAC-Adresse erzeugen,
+  // damit mehrere Sensoren ohne manuelle Konfiguration unterschiedliche Topics haben
+  if (strlen(mqtt_base_topic) == 0) {
+    String mac = WiFi.macAddress();  // z.B. "A4CF12B34567"
+    mac.toLowerCase();
+    snprintf(mqtt_base_topic, sizeof(mqtt_base_topic), "sensorcluster-%s", mac.substring(6).c_str());
+  }
   saveConfig();
+  buildTopics();
   
   // MQTT Setup
   mqttClient.setServer(mqtt_server, atoi(mqtt_port));

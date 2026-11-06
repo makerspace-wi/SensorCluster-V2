@@ -35,6 +35,15 @@ Ein ESP32-S2 basiertes IoT-Gerät mit Radar-Präsenzerkennung, Temperaturmessung
 
 ## 📡 MQTT Topics
 
+> **Basis-Topic:** Alle Topics leiten sich vom konfigurierbaren **Basis-Topic** ab
+> (Standard: `sensorcluster`). Im Konfigurationsportal wird nur dieses eine Feld
+> gesetzt; daraus entstehen automatisch `<Basis>/data`, `<Basis>/status`,
+> `<Basis>/beeper`, `<Basis>/led`, `<Basis>/temperature`, `<Basis>/radar/presence`
+> und `<Basis>/restart`. Wird das Feld leer gelassen, erzeugt die Firmware
+> `sensorcluster-<MAC-Suffix>`, damit mehrere Geräte ohne Konfiguration eindeutige
+> Topics haben. In den folgenden Beispielen steht `sensorcluster` für das
+> jeweils konfigurierte Basis-Topic.
+
 ### Status & Heartbeat
 - `sensorcluster/status` - Status (retained): `online`, `offline` (LWT), `restarting` (vor jedem Neustart)
 - `sensorcluster/data` - Heartbeat (alle 10s) als JSON mit Device-Info, IP-Adresse und Uptime
@@ -112,7 +121,7 @@ Kann über das WiFi-Portal konfiguriert werden:
 - **MQTT Port** - Standard: 1883
 - **MQTT User** - Optional
 - **MQTT Passwort** - Optional
-- **MQTT Topic** (Heartbeat) - Standard: `sensorcluster/data` (Hinweis: nur dieses Topic ist konfigurierbar; Status-, LED-, Beeper- und Restart-Topics bleiben fest auf `sensorcluster/...`)
+- **Basis-Topic** - Standard: `sensorcluster` (alle Untertopics wie `data`, `status`, `led`, ... werden daraus abgeleitet; leer lassen = automatisch `sensorcluster-<MAC-Suffix>`, damit mehrere Geräte eindeutige Topics haben)
 
 ### WiFi Reset
 - Web-Interface aufrufen: `http://<IP-Adresse>/reset`
